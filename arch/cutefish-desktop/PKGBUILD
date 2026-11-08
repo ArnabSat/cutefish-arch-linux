@@ -1,0 +1,135 @@
+# Maintainer: local/community packaging example
+# Upstream: https://github.com/cutefishos
+# This is an experimental monolithic package: it builds the documented
+# desktop components and stages their combined /usr tree into one package.
+
+pkgname=cutefish-desktop-git
+pkgver=0.1.0.r1.g0000000
+pkgrel=1
+pkgdesc='Cutefish Wayland desktop and recommended applications (Git build)'
+arch=('x86_64' 'aarch64')
+url='https://github.com/cutefishos'
+license=('BSD-3-Clause' 'GPL-3.0-or-later' 'custom')
+
+# Runtime libraries and external services used by the built components.
+depends=(
+  'wayland' 'wayland-protocols' 'libglvnd' 'libxkbcommon' 'systemd-libs'
+  'mesa' 'libinput' 'libseat' 'pam' 'libxcb'
+  'fontconfig' 'freetype2' 'harfbuzz' 'icu' 'libpng' 'libjpeg-turbo'
+  'zlib' 'expat' 'libwebp' 'libtiff' 'libheif' 'libjxl'
+  'pipewire' 'ffmpeg' 'libva' 'libdrm'
+  'libarchive' 'fuse3' 'libmtp' 'samba' 'libssh' 'libzip' 'libxcrypt'
+  'libxcursor' 'pcre2' 'curl' 'libical' 'mpv'
+  'xwayland' 'adwaita-icon-theme' 'gtk-update-icon-cache' 'libxcb'
+)
+makedepends=(
+  'base-devel' 'git' 'cmake' 'ninja' 'clang' 'pkgconf' 'python'
+  'gettext' 'gtest'
+)
+optdepends=(
+  'networkmanager: network management service'
+  'bluez: Bluetooth support'
+  'upower: power management information'
+  'power-profiles-daemon: power profiles'
+  'udisks2: removable storage management'
+  'wireplumber: PipeWire session manager'
+  'accountsservice: user account information'
+  'polkit: privilege authorization'
+  'gnome-keyring: secret storage'
+  'xdg-desktop-portal: desktop portal integration'
+)
+provides=('cutefish-desktop')
+conflicts=('cutefish-desktop')
+
+source=(
+  'cutefish-toolkit::git+https://github.com/cutefishos/cutefish-toolkit.git#branch=main'
+  'cutefish-framework::git+https://github.com/cutefishos/cutefish-framework.git#branch=main'
+  'icons::git+https://github.com/cutefishos/icons.git#branch=main'
+  'cutefish-core::git+https://github.com/cutefishos/cutefish-core.git#branch=main'
+  'filemanager::git+https://github.com/cutefishos/filemanager.git#branch=main'
+  'terminal::git+https://github.com/cutefishos/terminal.git#branch=main'
+  'xdg-desktop-portal-cutefish::git+https://github.com/cutefishos/xdg-desktop-portal-cutefish.git#branch=main'
+  'settings::git+https://github.com/cutefishos/settings.git#branch=main'
+  'system-monitor::git+https://github.com/cutefishos/system-monitor.git#branch=main'
+  'text-editor::git+https://github.com/cutefishos/text-editor.git#branch=main'
+  'video-player::git+https://github.com/cutefishos/video-player.git#branch=main'
+  'calendar::git+https://github.com/cutefishos/calendar.git#branch=main'
+  'cutefish-compositor::git+https://github.com/cutefishos/cutefish-compositor.git#branch=main'
+  'wallpapers::git+https://github.com/cutefishos/wallpapers.git#branch=main'
+  '001-set-corner-radius-8.patch'
+)
+sha256sums=(
+  'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP'
+  'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP'
+  '0f1fd01f423e41b59e4f7dddf40913bff4f7ced33de3064deb0e3a7997851e9b'
+)
+
+pkgver() {
+  cd "$srcdir/cutefish-toolkit"
+  printf '0.1.0.r%s.g%s' "$(git rev-list --count HEAD)" "$(git rev-parse --short=7 HEAD)"
+}
+
+prepare() {
+  cd "$srcdir/cutefish-toolkit"
+  patch --forward --strip=1 --input="$srcdir/001-set-corner-radius-8.patch"
+}
+
+build() {
+  local stage="$srcdir/stage"
+  local build_root="$srcdir/build"
+  local component
+  local components=(
+    cutefish-toolkit
+    cutefish-framework
+    icons
+    cutefish-core
+    filemanager
+    terminal
+    xdg-desktop-portal-cutefish
+    settings
+    system-monitor
+    text-editor
+    video-player
+    calendar
+    cutefish-compositor
+    wallpapers
+  )
+
+  mkdir -p "$stage/usr" "$build_root"
+  export CMAKE_PREFIX_PATH="$stage/usr${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
+  export PKG_CONFIG_PATH="$stage/usr/lib/pkgconfig:$stage/usr/share/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+  export LD_LIBRARY_PATH="$stage/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+  # The upstream toolkit script checks out its pinned Skia revision into
+  # the toolkit source tree. Network access is therefore required here.
+  cd "$srcdir/cutefish-toolkit"
+  bash scripts/fetch-skia.sh
+
+  for component in "${components[@]}"; do
+    msg2 "Building and staging ${component}"
+    cmake -S "$srcdir/$component" -B "$build_root/$component" \
+      -G Ninja \
+      -DCMAKE_INSTALL_PREFIX=/usr \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DBUILD_TESTING=OFF \
+      -DCMAKE_PREFIX_PATH="$stage/usr"
+    cmake --build "$build_root/$component" --parallel "${BUILD_JOBS:-2}"
+    DESTDIR="$stage" cmake --install "$build_root/$component"
+  done
+}
+
+package() {
+  install -d "$pkgdir/usr"
+  cp -a "$srcdir/stage/usr/." "$pkgdir/usr/"
+
+  # Keep upstream license files where available. The installed desktop
+  # components may also install their own license/copyright material.
+  install -d "$pkgdir/usr/share/licenses/$pkgname"
+  for repo in cutefish-toolkit cutefish-framework cutefish-core \
+      cutefish-compositor filemanager settings terminal icons; do
+    if [[ -f "$srcdir/$repo/LICENSE" ]]; then
+      install -m644 "$srcdir/$repo/LICENSE" \
+        "$pkgdir/usr/share/licenses/$pkgname/${repo}-LICENSE"
+    fi
+  done
+}

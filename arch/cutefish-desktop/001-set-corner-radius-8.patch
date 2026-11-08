@@ -1,0 +1,19 @@
+--- a/src/ui/theme.h
++++ b/src/ui/theme.h
+@@ -22,12 +22,12 @@ struct Theme
+     Color text;
+     Color disabledText;
+     Color highlight;
+     Color highlightedText;
+     double smallRadius = 8;
+-    double mediumRadius = 10;
+-    double bigRadius = 12;
+-    double hugeRadius = 14;
+-    double windowRadius = 14;
++    double mediumRadius = 8;
++    double bigRadius = 8;
++    double hugeRadius = 8;
++    double windowRadius = 8;
+ 
+     double smallSpacing = 6;
+     double mediumSpacing = 9;
