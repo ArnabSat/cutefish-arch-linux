@@ -1,0 +1,70 @@
+name: Build Cutefish for Arch Linux
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_jobs:
+        description: Parallel build jobs (keep low on memory-limited runners)
+        required: false
+        default: '2'
+  push:
+    branches: [main]
+    paths:
+      - 'arch/**'
+      - '.github/workflows/build-arch.yml'
+  schedule:
+    - cron: '0 3 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base-devel
+
+    steps:
+      - name: Check out packaging repository
+        uses: actions/checkout@v4
+
+      - name: Update system and install build dependencies
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --needed --noconfirm \
+            git sudo cmake ninja clang pkgconf python gettext gtest \
+            wayland wayland-protocols libglvnd libxkbcommon systemd-libs \
+            mesa libinput libseat pam libxcb \
+            fontconfig freetype2 harfbuzz icu libpng libjpeg-turbo zlib expat \
+            libwebp libtiff libheif libjxl pipewire ffmpeg libva libdrm \
+            libarchive fuse3 libmtp samba libssh libzip libxcrypt libxcursor \
+            pcre2 curl libical mpv xwayland adwaita-icon-theme \
+            gtk-update-icon-cache
+
+      - name: Configure unprivileged makepkg user
+        run: |
+          useradd --create-home builder
+          printf 'builder ALL=(ALL:ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/builder
+          chmod 0440 /etc/sudoers.d/builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          chown -R builder:builder "$GITHUB_WORKSPACE/out"
+
+      - name: Build package
+        working-directory: arch/cutefish-desktop
+        env:
+          BUILD_JOBS: ${{ github.event.inputs.build_jobs || '2' }}
+        run: |
+          runuser -u builder -- env \
+            HOME=/home/builder \
+            BUILD_JOBS="$BUILD_JOBS" \
+            PKGDEST="$GITHUB_WORKSPACE/out" \
+            makepkg --syncdeps --cleanbuild --noconfirm
+
+      - name: Upload Arch package
+        uses: actions/upload-artifact@v4
+        with:
+          name: cutefish-arch-${{ github.sha }}
+          path: out/*.pkg.tar.zst
+          if-no-files-found: error
+          retention-days: 14
